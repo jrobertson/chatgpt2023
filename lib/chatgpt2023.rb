@@ -5,6 +5,7 @@
 require 'net/http'
 require 'uri'
 require 'json'
+require 'down'
 
 
 # description: 1st experiment at playing with the ChatGPT API.
@@ -35,38 +36,108 @@ class ChatGpt2023
   
   def initialize(apikey: nil, debug: false)
     
-    @apiurl = "https://api.openai.com/v1/completions"
+    @apiurl = "https://api.openai.com/v1"
+    
     raise 'You must supply an API key!' unless apikey
     @apikey, @debug = apikey, debug
     
   end
   
-  def completions(s)
-    r = self.submit(s)
+  def completions(s, temperature: 0, max_tokens: 7)
+    r = self.go_completions(s, temperature: temperature, 
+                            max_tokens: max_tokens)
     r[:choices]
   end
   
   def completion(s)
-    self.completions(s).first[:text].strip
+    self.go_completions(s).first[:text].strip
   end
   
   alias complete completion
+  
+  def edits(s, s2)
+    r = self.go_edits(s, s2)
+  end
+  
+  def images(s)
+    self.go_images_generations(s)
+  end
+  
+  def image(s)
+    r = self.images(s)
+    img = r[:data].first[:url]    
+    Down.download(img)
+  end  
+  
+  alias imagine image
+  
+  def images_edit(s, image, mask: nil)
+    self.go_images_edits(s, image, mask: mask)
+  end
+  
+  private
 
-  def submit(promptx='Say this is a test', prompt: promptx, type: :completions)
+  def go_completions(s, temperature: 0, max_tokens: 7)
+
+    h = {
+      "model" => 'text-davinci-003',
+      "prompt" => s,
+      "temperature" => temperature,
+      "max_tokens" => max_tokens
+    }    
     
-    uri = URI.parse(@apiurl)
+    submit('completions', h)    
+    
+  end
+  
+  def go_edits(s, s2)
+
+    h = {
+      "model" => 'text-davinci-edit-001',
+      "input" => s,
+      "instruction" => s2
+    }
+    
+    submit('edits', h)
+    
+  end
+  
+  def go_images_generations(s, n: 1, size: '1024x1024')
+    
+    h = {
+      "prompt" => s,
+      "n" => n,
+      "size" => size
+    }
+    
+    submit('images/generations', h)
+    
+  end
+  
+  def go_images_edits(s, image, mask: nil, n: 1, size: '1024x1024')
+    
+    h = {
+      "image" => image,
+      "prompt" => s,
+      "n" => n,
+      "size" => size
+    }
+    
+    h['mask'] = mask if mask
+    
+    submit('images/edits', h)
+    
+  end  
+  
+  def submit(uri, h)
+        
+    uri = URI.parse(@apiurl + '/' + uri)
     request = Net::HTTP::Post.new(uri)
     request.content_type = "application/json"
     request["Authorization"] = 'Bearer ' + @apikey
-    
-    model = {completions: 'text-davinci-003'}
-    
-    request.body = JSON.dump({
-      "model" => model[type],
-      "prompt" => prompt,
-      "temperature" => 0,
-      "max_tokens" => 7
-    })
+        
+    puts 'h: ' + h.inspect if @debug
+    request.body = JSON.dump(h)
 
     req_options = {
       use_ssl: uri.scheme == "https",
