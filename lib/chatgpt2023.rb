@@ -32,6 +32,9 @@ require 'down'
 #  chat.completion 'Say this is a test'
 #  #=> This is indeed a test 
 
+class ChatGpt2023Error < Exception
+end
+
 class ChatGpt2023
   
   def initialize(apikey: nil, debug: false)
@@ -44,35 +47,40 @@ class ChatGpt2023
   end
   
   def completions(s, temperature: 0, max_tokens: 7)
-    r = self.go_completions(s, temperature: temperature, 
-                            max_tokens: max_tokens)
+    
+    r = go_completions(s, temperature: temperature, max_tokens: max_tokens)
+    raise ChatGpt2023Error, r[:error][:message].inspect if r.has_key? :error
+    
+    puts 'completions r: ' + r.inspect if @debug
     r[:choices]
+    
   end
   
-  def completion(s)
-    self.go_completions(s).first[:text].strip
+  def completion(s, temperature: 0, max_tokens: 7)
+    go_completions(s, temperature: temperature, max_tokens: max_tokens)\
+        .first[:text].strip
   end
   
   alias complete completion
+  alias ask completion
   
   def edits(s, s2)
-    r = self.go_edits(s, s2)
+    r = go_edits(s, s2)
   end
   
   def images(s)
-    self.go_images_generations(s)
+    go_images_generations(s)
   end
   
   def image(s)
-    r = self.images(s)
-    img = r[:data].first[:url]    
-    Down.download(img)
+    r = images(s)
+    Down.download(r[:data].first[:url] )
   end  
   
   alias imagine image
   
   def images_edit(s, image, mask: nil)
-    self.go_images_edits(s, image, mask: mask)
+    go_images_edits(s, image, mask: mask)
   end
   
   private
@@ -129,9 +137,9 @@ class ChatGpt2023
     
   end  
   
-  def submit(uri, h)
+  def submit(uri2, h)
         
-    uri = URI.parse(@apiurl + '/' + uri)
+    uri = URI.parse(@apiurl + '/' + uri2)
     request = Net::HTTP::Post.new(uri)
     request.content_type = "application/json"
     request["Authorization"] = 'Bearer ' + @apikey
