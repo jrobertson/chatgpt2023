@@ -24,6 +24,7 @@ require 'down'
 #  -d '{"model": "text-davinci-003", "prompt": "Say this is a test", "temperature": 0, "max_tokens": 7}'
 
 # ChatGpt documentation: https://beta.openai.com/docs/introduction/overview
+# ChatGpt web page: https://chat.openai.com/chat
 
 # Usage:
 #  require 'chatgpt2023'
@@ -46,18 +47,40 @@ class ChatGpt2023
     
   end
   
-  def completions(s, temperature: 0, max_tokens: 7)
+  # Example
+  # c = ChatGpt2023.new(apikey: 'yourapikey')
+  # s = '
+  # # Ruby
+  # # Ask the user for their name and say "Hello"
+  # '
+  # r = c.code_completions s, temperature: 0.2
+  # puts r.first[:text]
+  
+  def code_completions(s, temperature: 1, max_tokens: 32, n: 1)
     
-    r = go_completions(s, temperature: temperature, max_tokens: max_tokens)
-    raise ChatGpt2023Error, r[:error][:message].inspect if r.has_key? :error
+    r = go_code(s, temperature: temperature, 
+                       max_tokens: max_tokens, n: n)
+    puts 'code r: ' + r.inspect if @debug
+    r[:choices]
     
+  end
+
+  def code_completion(s, temperature: 1, max_tokens: 32)
+    code_completions(s, temperature: temperature, max_tokens: max_tokens)\
+        .first[:text].strip
+  end  
+  
+  def completions(s, temperature: 1, max_tokens: 32, n: 1)
+    
+    r = go_completions(s, temperature: temperature, 
+                       max_tokens: max_tokens, n: n)
     puts 'completions r: ' + r.inspect if @debug
     r[:choices]
     
   end
   
-  def completion(s, temperature: 0, max_tokens: 7)
-    go_completions(s, temperature: temperature, max_tokens: max_tokens)\
+  def completion(s, temperature: 1, max_tokens: 32)
+    completions(s, temperature: temperature, max_tokens: max_tokens)\
         .first[:text].strip
   end
   
@@ -84,14 +107,29 @@ class ChatGpt2023
   end
   
   private
+  
+  def go_code(s, temperature: 0, max_tokens: 7, n: 1)
 
-  def go_completions(s, temperature: 0, max_tokens: 7)
+    h = {
+      "model" => 'code-davinci-002',
+      "prompt" => s,
+      "temperature" => temperature,
+      "max_tokens" => max_tokens,
+      "n" => n
+    }    
+    
+    submit('completions', h)    
+    
+  end  
+
+  def go_completions(s, temperature: 0, max_tokens: 7, n: 1)
 
     h = {
       "model" => 'text-davinci-003',
       "prompt" => s,
       "temperature" => temperature,
-      "max_tokens" => max_tokens
+      "max_tokens" => max_tokens,
+      "n" => n
     }    
     
     submit('completions', h)    
@@ -155,7 +193,10 @@ class ChatGpt2023
       http.request(request)
     end
     
-    JSON.parse(response.body, symbolize_names: true)
+    h = JSON.parse(response.body, symbolize_names: true)
+    raise ChatGpt2023Error, h[:error][:message].inspect if h.has_key? :error
+    
+    return h
   end
   
 end
