@@ -6,6 +6,7 @@ require 'net/http'
 require 'uri'
 require 'json'
 require 'down'
+require 'dynarex-daily'
 
 
 # description: 1st experiment at playing with the ChatGPT API.
@@ -199,4 +200,51 @@ class ChatGpt2023
     return h
   end
   
+end
+
+class CGRecorder <  ChatGpt2023
+  
+  def initialize(apikey: nil, indexfile: 'cgindex.xml', 
+                 logfile: 'chatgpt.xml', debug: false)
+    
+    super(apikey: apikey, debug: debug)
+    @dx = DynarexDaily.new filename: logfile, fields: %i(prompt result), 
+        autosave: true, order: 'descending', debug: false
+    @index = Dynarex.new(indexfile, schema: 'entries[title]/entry(prompt, ' \
+      + 'tags)', order: 'descending', autosave: true)
+    @index.title = 'ChatGPT prompt log'
+    
+  end
+  
+  def code_completion(s, tags=nil, temperature: 1, max_tokens: 32)
+    
+    r = code_completions(s, temperature: temperature, max_tokens: max_tokens)\
+        .first[:text].strip
+    log(s, r, tags)
+    
+    return r
+    
+  end   
+
+  def completion(s, tags=nil, temperature: 1, max_tokens: 32)
+    
+    r = completions(s, temperature: temperature, max_tokens: max_tokens)\
+        .first[:text].strip
+    log(s, r, tags)
+    
+    return r
+    
+  end
+  
+  alias complete completion
+  alias ask completion  
+  
+  private
+  
+  def log(prompt, result, tags)
+    
+    @index.create({prompt: prompt, tags: tags})
+    @dx.create({prompt: prompt, result: result})    
+    
+  end
 end
