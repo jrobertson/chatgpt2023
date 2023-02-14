@@ -190,11 +190,25 @@ class ChatGpt2023
       use_ssl: uri.scheme == "https",
     }
 
-    response = Net::HTTP.start(uri.hostname, uri.port, req_options) do |http|
-      http.request(request)
-    end
+    attempts = 0
     
-    h = JSON.parse(response.body, symbolize_names: true)
+    begin
+    
+      attempts += 1
+      
+      response = Net::HTTP.start(uri.hostname, uri.port, req_options) do |http|
+        http.request(request)
+      end
+      
+      h = JSON.parse(response.body, symbolize_names: true)
+      
+      if h[:error] then
+        puts 'warning:' + h[:error][:message] 
+        sleep 5
+      end
+    
+    end while h.has_key?(:error) and attempts <= 5
+        
     raise ChatGpt2023Error, h[:error][:message].inspect if h.has_key? :error
     
     return h
@@ -204,6 +218,8 @@ end
 
 class CGRecorder <  ChatGpt2023
   
+  attr_reader :index
+  
   def initialize(apikey: nil, indexfile: 'cgindex.xml', 
                  logfile: 'chatgpt.xml', debug: false)
     
@@ -212,11 +228,12 @@ class CGRecorder <  ChatGpt2023
         autosave: true, order: 'descending', debug: false
     @index = Dynarex.new(indexfile, schema: 'entries[title]/entry(prompt, ' \
       + 'tags)', order: 'descending', autosave: true)
-    @index.title = 'ChatGPT prompt log'
+    title = 'ChatGPT prompt log'
+    @index.title = title    
     
   end
   
-  def code_completion(s, tags=nil, temperature: 1, max_tokens: 32)
+  def code_completion(s, tags=nil, temperature: 1, max_tokens: 2000)
     
     r = code_completions(s, temperature: temperature, max_tokens: max_tokens)\
         .first[:text].strip
@@ -226,7 +243,7 @@ class CGRecorder <  ChatGpt2023
     
   end   
 
-  def completion(s, tags=nil, temperature: 1, max_tokens: 32)
+  def completion(s, tags=nil, temperature: 1, max_tokens: 1000)
     
     r = completions(s, temperature: temperature, max_tokens: max_tokens)\
         .first[:text].strip
@@ -247,4 +264,56 @@ class CGRecorder <  ChatGpt2023
     @dx.create({prompt: prompt, result: result})    
     
   end
+end
+
+class ChatAway
+  
+  # statement below used for debugging
+  #attr_reader :dx, :prompts
+  
+  def initialize(questions, apikey: nil, filepath: '/tmp/chatgpt', debug: false)
+    
+    @debug = debug
+    
+    FileUtils.mkdir_p filepath
+    idxfile = File.join(filepath, 'index.xml')
+    cgfile =  File.join(filepath, 'chatgpt.xml')
+    
+    @dx = questions.is_a?(Dynarex) ? questions : Dynarex.new(questions)
+    @chat = CGRecorder.new(apikey: apikey, indexfile: idxfile, logfile: cgfile)
+    @prompts = @chat.index.all.map(&:prompt)
+    
+  end
+  
+  def start()
+    
+    @dx.all.each do |rx|
+      
+        if @prompts.include?(rx.prompt) and rx.redo != 'true'
+          next 
+        end
+        
+        type = rx.type == 'code' ? :code_completion : :completion
+        
+        prompt = rx.prompt
+        
+        puts 'prompt: ' + prompt
+
+        attempts = 0
+        
+        begin
+          r = @chat.method(type).call prompt
+        rescue
+          puts 'Something not working! ' + ($!).inspect
+          sleep 2
+          attempts += 1
+          retry if attempts < 4 
+        end
+        
+        sleep 2
+        
+    end    
+    
+  end
+  
 end

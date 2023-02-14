@@ -1,6 +1,6 @@
 Gem::Specification.new do |s|
   s.name = 'chatgpt2023'
-  s.version = '0.3.0'
+  s.version = '0.4.0'
   s.summary = 'A ChatGPT API wrapper. #experimental'
   s.authors = ['James Robertson']
   s.files = Dir["lib/chatgpt2023.rb"]
