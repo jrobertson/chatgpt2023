@@ -39,12 +39,12 @@ end
 
 class ChatGpt2023
   
-  def initialize(apikey: nil, debug: false)
+  def initialize(apikey: nil, attempts: 1, debug: false)
     
     @apiurl = "https://api.openai.com/v1"
     
     raise 'You must supply an API key!' unless apikey
-    @apikey, @debug = apikey, debug
+    @apikey, @attempts, @debug = apikey, attempts, debug
     
   end
   
@@ -207,7 +207,7 @@ class ChatGpt2023
         sleep 5
       end
     
-    end while h.has_key?(:error) and attempts <= 5
+    end while h.has_key?(:error) and attempts < @attempts
         
     raise ChatGpt2023Error, h[:error][:message].inspect if h.has_key? :error
     
@@ -221,9 +221,9 @@ class CGRecorder <  ChatGpt2023
   attr_reader :index
   
   def initialize(apikey: nil, indexfile: 'cgindex.xml', 
-                 logfile: 'chatgpt.xml', debug: false)
+                 logfile: 'chatgpt.xml', attempts: 1, debug: false)
     
-    super(apikey: apikey, debug: debug)
+    super(apikey: apikey, attempts: attempts, debug: debug)
     @dx = DynarexDaily.new filename: logfile, fields: %i(prompt result), 
         autosave: true, order: 'descending', debug: false
     @index = Dynarex.new(indexfile, schema: 'entries[title]/entry(prompt, ' \
@@ -280,7 +280,7 @@ class ChatAway
     cgfile =  File.join(filepath, 'chatgpt.xml')
     
     @dx = questions.is_a?(Dynarex) ? questions : Dynarex.new(questions)
-    @chat = CGRecorder.new(apikey: apikey, indexfile: idxfile, logfile: cgfile)
+    @chat = CGRecorder.new(apikey: apikey, indexfile: idxfile, logfile: cgfile, attempts: 5)
     @prompts = @chat.index.all.map(&:prompt)
     
   end
