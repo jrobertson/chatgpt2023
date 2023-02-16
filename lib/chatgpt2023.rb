@@ -62,13 +62,14 @@ class ChatGpt2023
     r = go_code(s, temperature: temperature, 
                        max_tokens: max_tokens, n: n)
     puts 'code r: ' + r.inspect if @debug
-    r[:choices]
+    r[:error] ? r : r[:choices]
     
   end
 
   def code_completion(s, temperature: 1, max_tokens: 32)
-    code_completions(s, temperature: temperature, max_tokens: max_tokens)\
-        .first[:text].strip
+    r = code_completions(s, temperature: temperature, max_tokens: max_tokens)
+    return r if r.is_a?(Hash) 
+    return {text: r.first[:text].strip}
   end  
   
   def completions(s, temperature: 1, max_tokens: 32, n: 1)
@@ -76,13 +77,14 @@ class ChatGpt2023
     r = go_completions(s, temperature: temperature, 
                        max_tokens: max_tokens, n: n)
     puts 'completions r: ' + r.inspect if @debug
-    r[:choices]
+    r[:error] ? r : r[:choices]
     
   end
   
   def completion(s, temperature: 1, max_tokens: 32)
-    completions(s, temperature: temperature, max_tokens: max_tokens)\
-        .first[:text].strip
+    r = completions(s, temperature: temperature, max_tokens: max_tokens)
+    return r if r.is_a?(Hash) 
+    return {text: r.first[:text].strip}
   end
   
   alias complete completion
@@ -209,7 +211,7 @@ class ChatGpt2023
     
     end while h.has_key?(:error) and attempts < @attempts
         
-    raise ChatGpt2023Error, h[:error][:message].inspect if h.has_key? :error
+    #raise ChatGpt2023Error, h[:error][:message].inspect if h.has_key? :error
     
     return h
   end
@@ -222,7 +224,7 @@ class CGRecorder <  ChatGpt2023
   
   def initialize(apikey: nil, indexfile: 'cgindex.xml', 
                  logfile: 'chatgpt.xml', attempts: 1, debug: false)
-    
+
     super(apikey: apikey, attempts: attempts, debug: debug)
     @dx = DynarexDaily.new filename: logfile, fields: %i(prompt result), 
         autosave: true, order: 'descending', debug: false
@@ -235,9 +237,8 @@ class CGRecorder <  ChatGpt2023
   
   def code_completion(s, tags=nil, temperature: 1, max_tokens: 2000)
     
-    r = code_completions(s, temperature: temperature, max_tokens: max_tokens)\
-        .first[:text].strip
-    log(s, r, tags)
+    r = super(s, temperature: temperature, max_tokens: max_tokens)    
+    log(s, r[:text].strip, tags)
     
     return r
     
@@ -245,9 +246,9 @@ class CGRecorder <  ChatGpt2023
 
   def completion(s, tags=nil, temperature: 1, max_tokens: 1000)
     
-    r = completions(s, temperature: temperature, max_tokens: max_tokens)\
-        .first[:text].strip
-    log(s, r, tags)
+    r = super(s, temperature: temperature, max_tokens: max_tokens)
+    puts 'CGRecorder inside completion: ' + r.inspect if @debug
+    log(s, r[:text].strip, tags)
     
     return r
     
@@ -269,7 +270,7 @@ end
 class ChatAway
   
   # statement below used for debugging
-  #attr_reader :dx, :prompts
+  attr_reader :dx, :prompts
   
   def initialize(questions, apikey: nil, filepath: '/tmp/chatgpt', debug: false)
     
@@ -278,42 +279,99 @@ class ChatAway
     FileUtils.mkdir_p filepath
     idxfile = File.join(filepath, 'index.xml')
     cgfile =  File.join(filepath, 'chatgpt.xml')
+
+    puts 'questions: ' + questions.inspect if @debug
+    @dx = case questions.class.to_s.to_sym
+    when :Dynarex
+      questions
+    when :String
+      questions.lines.length < 2 ? Dynarex.new(questions) : import(questions)
+    end
     
-    @dx = questions.is_a?(Dynarex) ? questions : Dynarex.new(questions)
-    @chat = CGRecorder.new(apikey: apikey, indexfile: idxfile, logfile: cgfile, attempts: 5)
+    @chat = CGRecorder.new(apikey: apikey, indexfile: idxfile, 
+                           logfile: cgfile, attempts: 5, debug: @debug)
     @prompts = @chat.index.all.map(&:prompt)
     
-  end
-  
-  def start()
+    @mode = nil
     
-    @dx.all.each do |rx|
+  end 
+  
+  def start()        
+    
+    @dx.all.map do |rx|
       
-        if @prompts.include?(rx.prompt) and rx.redo != 'true'
-          next 
-        end
-        
-        type = rx.type == 'code' ? :code_completion : :completion
-        
-        prompt = rx.prompt
-        
-        puts 'prompt: ' + prompt
+      puts 'rx: ' + rx.inspect if @debug
+      
+      #if (@prompts.include?(rx.prompt) and rx.redo != 'true') \
+      #    or @mode != :import
+      #  next 
+      #end
+      
+      type = rx.type == 'code' ? :code_completion : :completion
+      
+      prompt = rx.prompt
+      
+      puts 'prompt: ' + prompt
 
-        attempts = 0
+      attempts = 0
+      reply = nil
+      
+      begin
         
-        begin
-          r = @chat.method(type).call prompt
-        rescue
-          puts 'Something not working! ' + ($!).inspect
+        r = @chat.method(type).call prompt
+        
+        puts 'r: ' + r.inspect if @debug
+        
+        if r[:error] then
+          
+          puts r[:error][:text]
           sleep 2
           attempts += 1
-          retry if attempts < 4 
+          
+          redo if attempts < 4             
+          
+        else
+          reply = r[:text]
         end
         
+      rescue
+        
+        puts 'Something not working! ' + ($!).inspect
         sleep 2
+        attempts += 1
+        
+        retry if attempts < 4 
+        
+      ensure
+        
+        reply ||= ''
+        
+      end
+      
+      sleep 2
+      
+      reply
         
     end    
     
   end
+  
+  private
+  
+  
+  def import(s)
+
+    @mode = :import
+    puts 'inside import' if @debug
+    
+    header = '<?dynarex schema="prompts/entry(prompt, type, redo)" delimiter=" # "?>
+--+ 
+'
+
+    s2 = header + s.strip.lines.map {|line| 'p: ' + line }.join("\n")
+
+    Dynarex.new(s2)
+    
+  end   
   
 end
