@@ -39,14 +39,61 @@ end
 
 class ChatGpt2023
   
+  attr_accessor :assistant_recent
+  
   def initialize(apikey: nil, attempts: 1, debug: false)
     
     @apiurl = "https://api.openai.com/v1"
     
     raise 'You must supply an API key!' unless apikey
     @apikey, @attempts, @debug = apikey, attempts, debug
+    @assistant_recent = nil
     
   end
+  
+  
+  # CURL example
+  # curl https://api.openai.com/v1/chat/completions \
+  # -H 'Content-Type: application/json' \
+  # -H 'Authorization: Bearer YOUR_API_KEY' \
+  # -d '{
+  # "model": "gpt-3.5-turbo",
+  # "messages": [{"role": "user", "content": "Hello!"}]
+  # }'
+  
+  # Ruby example
+
+  # require 'chatgpt2023'
+
+  # c = ChatGpt2023.new(apikey: YOUR_API_KEY)
+  # r = c.chat 'who is Burt Reynolds?'
+  # r2 = c.chat 'what age was he?'
+  # r3 = c.chat 'did he have family?'  
+  #
+  
+  def chat(s, temperature: 1, max_tokens: 3900)
+    r = chats(s, temperature: temperature, max_tokens: max_tokens)
+    return r if r.is_a?(Hash) 
+    return {text: r.first[:message][:content].strip}
+  end
+  
+  def chats(s=nil, messages: [], temperature: 1, max_tokens: 3900, n: 1)
+    
+    messages << @assistant_recent if @assistant_recent
+    messages << {'role' => 'user', 'content' => s } if s
+    r = go_chat(messages, temperature: temperature, 
+                       max_tokens: max_tokens, n: n)        
+    
+    puts 'chat/completions r: ' + r.inspect if @debug
+    
+    if r[:error] then r
+      r
+    else
+      @assistant_recent = r[:choices].first[:message]
+      r[:choices]
+    end
+    
+  end  
   
   # Example
   # c = ChatGpt2023.new(apikey: 'yourapikey')
@@ -56,7 +103,7 @@ class ChatGpt2023
   # '
   # r = c.code_completions s, temperature: 0.2
   # puts r.first[:text]
-  
+  #
   def code_completions(s, temperature: 1, max_tokens: 32, n: 1)
     
     r = go_code(s, temperature: temperature, 
@@ -88,7 +135,7 @@ class ChatGpt2023
   end
   
   alias complete completion
-  alias ask completion
+  alias ask chat
   
   def edits(s, s2)
     r = go_edits(s, s2)
@@ -110,6 +157,20 @@ class ChatGpt2023
   end
   
   private
+  
+  def go_chat(messages=[], temperature: 0, max_tokens: 4096, n: 1)
+
+    h = {      
+      "model" => 'gpt-3.5-turbo',
+      "messages" => messages,
+      "temperature" => temperature,
+      "max_tokens" => max_tokens,
+      "n" => n
+    }    
+    
+    submit('chat/completions', h)    
+    
+  end  
   
   def go_code(s, temperature: 0, max_tokens: 7, n: 1)
 
@@ -227,7 +288,7 @@ class CGRecorder <  ChatGpt2023
 
     super(apikey: apikey, attempts: attempts, debug: debug)
     @dx = DynarexDaily.new filename: logfile, fields: %i(prompt result), 
-        autosave: true, order: 'descending', debug: false
+        autosave: true, order: 'descending', debug: debug
     @index = Dynarex.new(indexfile, schema: 'entries[title]/entry(prompt, ' \
       + 'tags)', order: 'descending', autosave: true)
     title = 'ChatGPT prompt log'
@@ -238,7 +299,7 @@ class CGRecorder <  ChatGpt2023
   def code_completion(s, tags=nil, temperature: 1, max_tokens: 2000)
     
     r = super(s, temperature: temperature, max_tokens: max_tokens)    
-    log(s, r[:text].strip, tags)
+    log(s, r[:text].strip, tags) unless r[:error]
     
     return r
     
@@ -248,7 +309,7 @@ class CGRecorder <  ChatGpt2023
     
     r = super(s, temperature: temperature, max_tokens: max_tokens)
     puts 'CGRecorder inside completion: ' + r.inspect if @debug
-    log(s, r[:text].strip, tags)
+    log(s, r[:text].strip, tags) unless r[:error]
     
     return r
     
