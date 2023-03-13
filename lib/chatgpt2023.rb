@@ -79,7 +79,16 @@ class ChatGpt2023
   
   def chats(s=nil, messages: [], temperature: 1, max_tokens: 3900, n: 1)
     
-    messages << @assistant_recent if @assistant_recent
+    if @assistant_recent then
+      
+      # We limit what gets passed back because there should enough 
+      # information in the 1st 140 chars to infer the conversation context
+      #
+      @assistant_recent[:content].slice!(140..-1)
+      messages << @assistant_recent
+      max_tokens -= @assistant_recent[:content].split.length
+    end
+    
     messages << {'role' => 'user', 'content' => s } if s
     r = go_chat(messages, temperature: temperature, 
                        max_tokens: max_tokens, n: n)        
@@ -296,6 +305,15 @@ class CGRecorder <  ChatGpt2023
     
   end
   
+  def chat(s, tags=nil, temperature: 1, max_tokens: 1000)
+    
+    r = super(s, temperature: temperature, max_tokens: max_tokens)
+    puts 'CGRecorder inside chat: ' + r.inspect if @debug
+    log(s, r[:text].strip, tags) unless r[:error]
+    
+    return r
+  end  
+  
   def code_completion(s, tags=nil, temperature: 1, max_tokens: 2000)
     
     r = super(s, temperature: temperature, max_tokens: max_tokens)    
@@ -312,8 +330,8 @@ class CGRecorder <  ChatGpt2023
     log(s, r[:text].strip, tags) unless r[:error]
     
     return r
-    
   end
+    
   
   alias complete completion
   alias ask completion  
